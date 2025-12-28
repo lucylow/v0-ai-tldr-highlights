@@ -1,10 +1,11 @@
 "use client"
-
 import type React from "react"
 import { useState, useEffect, useRef } from "react"
 import { Sparkles, Clock, Zap, LinkIcon, ChevronRight, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { AIProviderBadge } from "@/components/AIProviderBadge"
+import { MOCK_THREADS } from "@/lib/mock-data"
 
 export default function LandingPage() {
   const [selectedThread, setSelectedThread] = useState("demo")
@@ -28,66 +29,101 @@ export default function LandingPage() {
 
   useEffect(() => {
     return () => {
-      if (abortRef.current) abortRef.current.abort()
+      if (abortRef.current) {
+        abortRef.current.abort()
+      }
     }
   }, [])
 
-  async function startStreamingDemo() {
+  const handleSummarize = async () => {
+    if (!threadText.trim()) {
+      setError("Please enter some thread text")
+      return
+    }
+
+    setError(null)
+    setIsStreaming(true)
     setStreamTokens([])
     setDigest(null)
     setHighlights([])
     setMetrics(null)
-    setError(null)
-    setIsStreaming(true)
 
-    const url = "/api/stream_summary"
     const controller = new AbortController()
     abortRef.current = controller
 
     try {
-      const res = await fetch(url, {
+      const thread = MOCK_THREADS[selectedThread]
+
+      const res = await fetch("/api/stream_summary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: threadText, persona: "developer" }),
+        body: JSON.stringify({
+          thread, // Send full thread object with id
+          persona: "developer",
+        }),
         signal: controller.signal,
       })
 
-      if (!res.ok) {
-        const errorData = await res.json()
-        throw new Error(errorData.error || `Stream error ${res.status}`)
+      if (!res.ok || !res.body) {
+        const errTxt = await res.text().catch(() => "")
+        throw new Error(`Request failed: ${res.status} ${errTxt}`)
       }
 
-      const reader = res.body!.getReader()
-      const decoder = new TextDecoder("utf-8")
-      let buffer = ""
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffered = ""
 
       while (true) {
-        const { value, done } = await reader.read()
+        const { done, value } = await reader.read()
         if (done) break
-        buffer += decoder.decode(value, { stream: true })
 
-        const parts = buffer.split("\n\n")
-        buffer = parts.pop() || ""
+        buffered += decoder.decode(value, { stream: true })
+        const parts = buffered.split("\n\n")
+        buffered = parts.pop() || ""
 
-        for (const part of parts) {
-          const line = part.trim()
-          if (!line || line === ":") continue
-          let payloadRaw = line
-          if (line.startsWith("data: ")) payloadRaw = line.slice(6).trim()
-          if (payloadRaw === "[DONE]") continue
+        for (const p of parts) {
+          const chunk = p.trim()
+          if (!chunk) continue
 
+          const payloadRaw = chunk.startsWith("data: ") ? chunk.slice(6) : chunk
           try {
             const payload = JSON.parse(payloadRaw)
-            handleStreamEvent(payload)
-          } catch (parseError) {
-            console.warn("Failed to parse SSE payload:", payloadRaw)
+
+            switch (payload.type) {
+              case "token":
+                setStreamTokens((prev) => [...prev, payload.data?.token || ""])
+                break
+
+              case "summary_update":
+                break
+
+              case "digest":
+                setDigest(payload.data?.bullets || [])
+                setHighlights(payload.data?.highlights || [])
+                break
+
+              case "highlight":
+                setHighlights((prev) => [...prev, payload.data?.highlight])
+                break
+
+              case "complete":
+                if (payload.data?.metrics) {
+                  setMetrics(payload.data.metrics)
+                }
+                break
+
+              case "error":
+                setError(payload.data?.error || "Stream error")
+                break
+            }
+          } catch (e) {
+            console.error("Parse error:", e)
           }
         }
       }
-    } catch (err: any) {
-      if (err.name !== "AbortError") {
-        console.error("Stream error:", err)
-        setError(err.message || "Unknown stream error")
+    } catch (e: any) {
+      if (e.name !== "AbortError") {
+        setError(e.message || "Something went wrong")
       }
     } finally {
       setIsStreaming(false)
@@ -95,52 +131,11 @@ export default function LandingPage() {
     }
   }
 
-  function handleStreamEvent(payload: any) {
-    if (!payload || !payload.type) return
-
-    switch (payload.type) {
-      case "token":
-        if (payload.data?.token) {
-          setStreamTokens((s) => [...s, payload.data.token])
-        }
-        break
-
-      case "summary_update":
-        // Quality pass completed
-        if (payload.data?.final_summary) {
-          setStreamTokens([payload.data.final_summary])
-        }
-        break
-
-      case "digest":
-        if (payload.data?.bullets) {
-          setDigest(payload.data.bullets)
-        }
-        if (payload.data?.highlights) {
-          setHighlights(payload.data.highlights)
-        }
-        break
-
-      case "highlight":
-        if (payload.data?.highlight) {
-          setHighlights((h) => [...h, payload.data.highlight])
-        }
-        break
-
-      case "complete":
-        if (payload.data?.metrics) {
-          setMetrics(payload.data.metrics)
-        }
-        break
-
-      case "error":
-        setError(payload.data?.error || "Unknown error")
-        break
+  const handleStop = () => {
+    if (abortRef.current) {
+      abortRef.current.abort()
+      abortRef.current = null
     }
-  }
-
-  function stopStreaming() {
-    if (abortRef.current) abortRef.current.abort()
     setIsStreaming(false)
   }
 
@@ -155,9 +150,11 @@ export default function LandingPage() {
             </div>
             <div>
               <h1 className="text-lg font-semibold">TL;DR</h1>
+              <p className="text-xs text-muted-foreground">100% Free & Open Source</p>
             </div>
           </div>
           <nav className="flex items-center gap-6">
+            <AIProviderBadge />
             <a className="text-sm text-muted-foreground hover:text-foreground transition-colors" href="#features">
               Features
             </a>
@@ -180,7 +177,7 @@ export default function LandingPage() {
         <section className="py-24 text-center">
           <div className="animate-in fade-in duration-600">
             <div className="inline-block mb-6 px-4 py-2 rounded-full border border-accent/30 bg-accent/10 text-accent text-sm">
-              AI-Powered Thread Summaries
+              🚀 100% Free AI-Powered Summaries - No Credit Card Required
             </div>
             <h2 className="text-6xl font-bold leading-tight mb-6 text-balance">
               The fastest way to understand
@@ -188,27 +185,32 @@ export default function LandingPage() {
               <span className="text-accent">any discussion thread</span>
             </h2>
             <p className="text-xl text-muted-foreground max-w-3xl mx-auto mb-10 leading-relaxed">
-              Streaming summaries with smart highlights and provenance links. Get the gist of long forum threads in
-              10-30 seconds instead of minutes.
+              Streaming summaries with smart highlights powered by free, open-source AI models. Get the gist of long
+              forum threads in 10-30 seconds instead of minutes.
             </p>
             <div className="flex items-center justify-center gap-4">
-              <Button size="lg" className="gap-2 text-base px-8 py-6">
+              <Button
+                size="lg"
+                className="gap-2 text-base px-8 py-6"
+                onClick={() => document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" })}
+              >
                 Try Live Demo
                 <ChevronRight className="w-5 h-5" />
               </Button>
-              <Button size="lg" variant="outline" className="gap-2 text-base px-8 py-6 bg-transparent">
-                <Search className="w-5 h-5" />
-                View Documentation
+              <Button size="lg" variant="outline" className="gap-2 text-base px-8 py-6 bg-transparent" asChild>
+                <a href="/SETUP_FREE_AI.md" target="_blank" rel="noreferrer">
+                  <Search className="w-5 h-5" />
+                  Setup Guide
+                </a>
               </Button>
             </div>
           </div>
 
-          {/* Stats Grid */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-20 max-w-5xl mx-auto">
-            <StatCard value="10-30s" label="Read time saved" subtext="vs. minutes" />
-            <StatCard value="200ms" label="First token latency" subtext="streaming starts" />
+            <StatCard value="$0" label="Cost per 1000 summaries" subtext="completely free" />
+            <StatCard value="200ms" label="First token latency" subtext="with Groq" />
             <StatCard value="86%" label="Highlight precision" subtext="verified accuracy" />
-            <StatCard value="$0.02" label="Cost per digest" subtext="production-ready" />
+            <StatCard value="100%" label="Open Source" subtext="no vendor lock-in" />
           </div>
         </section>
 
@@ -269,11 +271,11 @@ export default function LandingPage() {
             )}
 
             <div className="flex gap-3 mb-6">
-              <Button onClick={startStreamingDemo} disabled={isStreaming || !threadText} className="gap-2">
+              <Button onClick={handleSummarize} disabled={isStreaming || !threadText} className="gap-2">
                 <Zap className="w-4 h-4" />
                 {isStreaming ? "Streaming..." : "Stream TL;DR"}
               </Button>
-              <Button onClick={stopStreaming} disabled={!isStreaming} variant="outline">
+              <Button onClick={handleStop} disabled={!isStreaming} variant="outline">
                 Stop
               </Button>
               <Button

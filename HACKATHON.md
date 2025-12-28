@@ -1,14 +1,124 @@
 # Hackathon Submission: AI TL;DR + Smart Highlights
 
+## Track: AI & Intelligence - LLM-Powered Features
+
+**TL;DR + Smart Highlights** demonstrates how incredibly easy Foru.ms API data pipes into LLMs to create powerful community features - all **100% free** with no credit card required!
+
+---
+
 ## Executive Summary
 
-**TL;DR + Smart Highlights** transforms long forum threads into instant, trustworthy digests using streaming LLM inference, dendritic-optimized sentence classification, and provenance-linked highlights.
+Traditional forum threads are overwhelming. Our solution transforms long discussions into instant, trustworthy digests using:
 
-**Value Proposition**: Reduce thread reading time from minutes to 10-30 seconds while maintaining full transparency through source linking.
+- **Free AI Models** (Groq/Ollama/Hugging Face)
+- **Streaming LLM inference** (<200ms first token)
+- **Smart highlights** with source provenance
+- **Foru.ms integration** showcasing easy LLM workflows
+
+**Value**: Reduce reading time from minutes to 10-30 seconds with zero infrastructure costs.
+
+---
+
+## How This Aligns With The Track
+
+### "Our API data is incredibly easy to pipe into LLMs"
+
+**Example from our code:**
+
+```typescript
+// Step 1: Fetch from Foru.ms (one line!)
+const thread = await forumsClient.getThread(threadId)
+
+// Step 2: Send to free LLM (structured JSON → prompt)
+const insights = await llm.generateText({
+  prompt: `Analyze sentiment in this forum thread:
+  ${thread.posts.map(p => `${p.author.username}: ${p.content}`).join('\n')}
+  
+  Provide: overall sentiment, key emotions, tone shifts.`
+})
+
+// Done! That's literally it. 🎯
+```
+
+The Foru.ms API returns clean, structured JSON that's **perfect for LLMs**:
+- No HTML parsing needed
+- Author metadata included
+- Vote counts for ranking
+- Timestamps for trends
+- Clean text content
+
+### "Enhance community interaction using AI"
+
+We built **5 AI-powered features** showing Foru.ms + LLM synergy:
+
+1. **Sentiment Analysis**: Detect frustration, excitement, confusion
+2. **Topic Extraction**: Auto-tag threads with relevant topics
+3. **Expertise Detection**: Identify helpful contributors
+4. **Smart Replies**: AI-generated response suggestions
+5. **Trend Detection**: Spot emerging community issues
+
+All implemented in **<100 lines** per feature. See [FORUMS_AI_INTEGRATION.md](./FORUMS_AI_INTEGRATION.md).
+
+---
+
+## Why Free AI Matters
+
+### The Problem with Paid AI Services
+
+- Require credit cards (barrier to entry)
+- Cost adds up fast ($0.02-0.10 per request)
+- Vendor lock-in
+- Privacy concerns with cloud APIs
+
+### Our Free Solution
+
+| Provider | Setup Time | Cost | Performance |
+|----------|------------|------|-------------|
+| **Groq** | 2 minutes | $0 | 70B model, <200ms |
+| **Ollama** | 5 minutes | $0 | 100% private, unlimited |
+| **HF Free** | 2 minutes | $0 | Cloud inference |
+
+**Result**: Anyone can clone and run this project with **zero cost** and **no credit card**.
 
 ---
 
 ## Technical Innovation
+
+### 1. Free AI Integration
+
+We created a **unified client** supporting 3 free providers:
+
+```typescript
+// lib/ai/free-llm-client.ts
+class FreeLLMClient {
+  async *streamText(options) {
+    switch (this.config.provider) {
+      case "groq": yield* this.streamGroq(options)
+      case "ollama": yield* this.streamOllama(options) 
+      case "huggingface": yield* this.streamHuggingFace(options)
+    }
+  }
+}
+```
+
+Priority: Groq (fast) → Ollama (local) → Hugging Face (free tier)
+
+### 2. Foru.ms → LLM Pipeline
+
+**5-minute integration path:**
+
+```typescript
+// 1. Fetch thread
+const thread = await forumsClient.getThread(id)
+
+// 2. Analyze with LLM
+const insights = await getComprehensiveInsights(thread)
+
+// 3. Display results
+return <AIInsightsPanel insights={insights} />
+```
+
+That's it! The API structure makes LLM integration trivial.
 
 ### 1. Streaming Architecture
 - **Real-time token delivery**: First token in <200ms

@@ -13,20 +13,20 @@ export default async function ThreadPage({ params }: Props) {
   const { id: threadId } = await params
   let thread: Thread
 
-  try {
-    console.log(`[Thread Page] Attempting to fetch thread ${threadId} from Foru.ms...`)
-    const forumsThread = await forumsClient.getThread(threadId)
-    thread = forumsNormalizer.normalizeThread(forumsThread)
-    console.log(`[Thread Page] Successfully fetched thread ${threadId} from Foru.ms`)
-  } catch (error: any) {
-    console.warn(`[Thread Page] Foru.ms fetch failed, trying mock data:`, error.message)
+  const mockThread = getMockThread(threadId)
 
-    const mockThread = getMockThread(threadId)
+  if (mockThread) {
+    console.log(`[Thread Page] Using mock thread data for ${threadId}`)
+    thread = mockThread
+  } else {
+    try {
+      console.log(`[Thread Page] Attempting to fetch thread ${threadId} from Foru.ms...`)
+      const forumsThread = await forumsClient.getThread(threadId)
+      thread = forumsNormalizer.normalizeThread(forumsThread)
+      console.log(`[Thread Page] Successfully fetched thread ${threadId} from Foru.ms`)
+    } catch (error: any) {
+      console.warn(`[Thread Page] Foru.ms fetch failed for ${threadId}:`, error.message)
 
-    if (mockThread) {
-      thread = mockThread
-      console.log(`[Thread Page] Using mock thread data for ${threadId}`)
-    } else {
       // Final fallback to basic demo
       console.log(`[Thread Page] No mock data found, using basic demo for ${threadId}`)
       thread = {

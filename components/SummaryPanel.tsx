@@ -233,19 +233,19 @@ export default function SummaryPanel({
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div>
               <div className="text-muted-foreground">First Token</div>
-              <div className="font-medium">{metrics.latency.firstToken}</div>
+              <div className="font-medium">{metrics?.latency?.firstToken || "N/A"}</div>
             </div>
             <div>
               <div className="text-muted-foreground">Total Time</div>
-              <div className="font-medium">{metrics.latency.total}</div>
+              <div className="font-medium">{metrics?.latency?.total || "N/A"}</div>
             </div>
             <div>
               <div className="text-muted-foreground">Tokens Used</div>
-              <div className="font-medium">{metrics.cost.tokensUsed}</div>
+              <div className="font-medium">{metrics?.cost?.tokensUsed || "N/A"}</div>
             </div>
             <div>
               <div className="text-muted-foreground">Est. Cost</div>
-              <div className="font-medium">{metrics.cost.estimatedCost}</div>
+              <div className="font-medium">{metrics?.cost?.estimatedCost || "N/A"}</div>
             </div>
           </div>
         </div>

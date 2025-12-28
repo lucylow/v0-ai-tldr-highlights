@@ -55,16 +55,32 @@ export class ForumsClient {
       headers["X-Instance-ID"] = this.instanceId
     }
 
-    const response = await fetch(`${this.baseUrl}${url}`, {
-      headers,
-      next: { revalidate: 60 }, // Cache for 1 minute
-    })
+    const fullUrl = `${this.baseUrl}${url}`
 
-    if (!response.ok) {
-      throw new Error(`Foru.ms API error: ${response.status} - ${response.statusText}`)
+    try {
+      const response = await fetch(fullUrl, {
+        headers,
+        next: { revalidate: 60 }, // Cache for 1 minute
+      })
+
+      if (!response.ok) {
+        // Try to get error body, but don't fail if it's not JSON
+        let errorBody = ""
+        try {
+          const text = await response.text()
+          errorBody = text.substring(0, 200) // Only show first 200 chars
+        } catch (e) {
+          // Ignore body parsing errors
+        }
+
+        throw new Error(`fetch to ${fullUrl} failed with status ${response.status} and body: ${errorBody}`)
+      }
+
+      return await response.json()
+    } catch (error: any) {
+      // Re-throw with context
+      throw new Error(error.message || `Failed to fetch from ${fullUrl}`)
     }
-
-    return await response.json()
   }
 
   /**
