@@ -889,6 +889,3 @@ sequenceDiagram
   Ingest->>DB: INSERT post_sentences (embedding)
   DB-->>Ingest: OK
 ```
-
---
-Which deliverable should I generate next?
