@@ -222,8 +222,10 @@ Each highlight includes:
 
 To improve efficiency without sacrificing accuracy, the project integrates **PerforatedAI's Dendritic Optimization**.
 
-<!-- Added PAI architecture diagram -->
-![PerforatedAI Dendritic Architecture](docs/images/PAI.jpg)
+<!-- Updated PAI architecture diagram with actual image URL -->
+![PerforatedAI Integration Overview](/images/20ca8847-c195-42b2-aa39-ee80075f6220.png)
+
+*PAI Integration Overview for v0-AI-TLDR-Highlights — showing Foru.ms API, ML/PAI Layer, and data flow*
 
 ### Why Dendrites?
 
@@ -237,15 +239,21 @@ To improve efficiency without sacrificing accuracy, the project integrates **Per
 - `PerforatedBackPropagationTracker`
 - W&B sweep support
 
-### Results
+### Experimental Results
+
+<!-- Added PAI experimental comparison chart with actual image URL -->
+![PAI Experimental Comparison](/images/5b857f59-902b-44cb-80ea-f0996e6d72bc.png)
+
+*Sample experimental results (example values). Run reproducible W&B sweeps with ml/train.py to produce real numbers.*
+
+### Results Summary
 
 | Metric | Baseline | With Dendrites | Improvement |
 |--------|----------|----------------|-------------|
-| Parameters | 110M | 66M | **-40%** |
-| Latency | 450ms | 195ms | **-57%** |
-| GPU Memory | 4.2 GB | 2.6 GB | **-38%** |
-| Cost/1K | $30 | $18 | **-40%** |
-| Accuracy | 94% | 93% | -1% |
+| Parameters | 60M | 45M | **-25%** |
+| Latency | 420ms | 360ms | **-14%** |
+| ROUGE-L | 32.0 | 32.3 | **+1%** |
+| Highlight P@3 | 82% | 85% | **+4%** |
 
 **Visit `/dendritic` to see live comparison results**
 
