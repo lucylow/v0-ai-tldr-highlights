@@ -1,15 +1,22 @@
 # v0-AI-TLDR-Highlights
 
+![](https://github.com/lucylow/v0-ai-tldr-highlights/blob/main/docs/images/banner.jpg?raw=true)
+![](https://github.com/lucylow/v0-ai-tldr-highlights/blob/main/docs/images/5b857f59-902b-44cb-80ea-f0996e6d72bc.png?raw=true)
+
 **Streaming TL;DR + Provenance-linked Smart Highlights**
 
 *(PerforatedAI + Weights & Biases focused — technical, reproducible, and engineer-first)*
 
 ![PAI Integration Overview](/images/20ca8847-c195-42b2-aa39-ee80075f6220.png)
 
+![](https://github.com/lucylow/v0-ai-tldr-highlights/blob/main/docs/images/landing-page.jpg?raw=true)
+
+
 ---
 
 > **TL;DR** — This repository implements a low-latency streaming summarizer + sentence-level highlights pipeline for headless forums (Foru.ms). It uses Hugging Face / PyTorch models for summarization and embeddings, integrates **PerforatedAI (dendritic/perforated backpropagation)** for parameter-efficient model compression, and uses **Weights & Biases (W&B)** for experiment tracking, sweeps, artifacts and visualizations.
 
+![](https://github.com/lucylow/v0-ai-tldr-highlights/blob/main/docs/images/ai-insights.jpg?raw=true)
 ---
 
 ## Table of Contents
@@ -42,9 +49,12 @@
 
 > **Security Note**: Never commit `WANDB_API_KEY`, `HF_TOKEN`, or any API secret into the repo. Revoke any keys accidentally exposed.
 
+![](https://github.com/lucylow/v0-ai-tldr-highlights/blob/main/docs/images/highlights.jpg?raw=true)
+
 ---
 
 ## High-Level Architecture
+
 
 ```mermaid
 flowchart LR
@@ -90,6 +100,8 @@ flowchart LR
 - Primary retrieval via `pgvector` IVFFlat index; `FAISS` used as offline/local fallback
 - Streaming summarizer: cheap streaming model → consolidation model strategy
 - **PerforatedAI** applied to encoder and/or consolidation T5 for dendritic optimization
+
+![](https://github.com/lucylow/v0-ai-tldr-highlights/blob/main/docs/images/20ca8847-c195-42b2-aa39-ee80075f6220.png?raw=true)
 
 ---
 
