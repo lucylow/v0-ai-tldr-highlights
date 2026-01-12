@@ -147,6 +147,9 @@ def evaluate_checkpoint(
     except Exception as e:
         logger.warning(f"ROUGE computation failed: {e}")
     
+    # BERTScore
+    results.bertscore_f1 = compute_bertscore(references, predictions)
+    
     # Latency
     results.latency_ms = sum(latencies) / max(len(latencies), 1)
     
@@ -207,3 +210,132 @@ def compare_experiments(
             json.dump(comparison, f, indent=2)
     
     return comparison
+
+
+def compute_rouge(reference_list: List[str], hypothesis_list: List[str]) -> Dict[str, float]:
+    """
+    Compute ROUGE scores.
+    
+    Args:
+        reference_list: List of reference summaries
+        hypothesis_list: List of generated summaries
+        
+    Returns:
+        Dictionary with rouge1, rouge2, rougeL scores
+    """
+    try:
+        from rouge_score import rouge_scorer
+        import numpy as np
+        
+        scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
+        
+        scores = {'rouge1': [], 'rouge2': [], 'rougeL': []}
+        for ref, hyp in zip(reference_list, hypothesis_list):
+            result = scorer.score(ref, hyp)
+            scores['rouge1'].append(result['rouge1'].fmeasure)
+            scores['rouge2'].append(result['rouge2'].fmeasure)
+            scores['rougeL'].append(result['rougeL'].fmeasure)
+        
+        return {
+            'rouge1': float(np.mean(scores['rouge1'])),
+            'rouge2': float(np.mean(scores['rouge2'])),
+            'rougeL': float(np.mean(scores['rougeL'])),
+        }
+    except ImportError:
+        logger.warning("rouge_score not installed")
+        return {'rouge1': 0.0, 'rouge2': 0.0, 'rougeL': 0.0}
+
+
+def compute_bertscore(
+    reference_list: List[str],
+    hypothesis_list: List[str],
+    model_type: str = 'microsoft/deberta-xlarge-mnli',
+) -> float:
+    """
+    Compute BERTScore F1.
+    
+    Args:
+        reference_list: List of reference summaries
+        hypothesis_list: List of generated summaries
+        model_type: Model to use for embeddings
+        
+    Returns:
+        Mean BERTScore F1
+    """
+    try:
+        from bert_score import score as bertscore
+        import numpy as np
+        
+        P, R, F = bertscore(
+            hypothesis_list,
+            reference_list,
+            lang='en',
+            model_type=model_type,
+            verbose=False,
+        )
+        return float(np.mean(F.numpy()))
+    except ImportError:
+        logger.warning("bert-score not installed")
+        return 0.0
+    except Exception as e:
+        logger.warning(f"BERTScore failed: {e}")
+        return 0.0
+
+
+def highlight_precision_at_k(
+    retrieved: List[List[Tuple[str, int]]],
+    ground_truth: List[set],
+    k: int = 3,
+) -> float:
+    """
+    Compute Highlight Precision@K.
+    
+    Measures how well retrieved highlights match ground-truth annotations.
+    
+    Args:
+        retrieved: List of lists of (post_id, sentence_idx) tuples
+        ground_truth: List of sets of ground-truth (post_id, sentence_idx) tuples
+        k: Number of top results to consider
+        
+    Returns:
+        Mean precision@k
+    """
+    import numpy as np
+    
+    precisions = []
+    for r, g in zip(retrieved, ground_truth):
+        topk = set(r[:k])
+        if len(topk) == 0:
+            precisions.append(0.0)
+        else:
+            precisions.append(len(topk.intersection(g)) / k)
+    
+    return float(np.mean(precisions)) if precisions else 0.0
+
+
+def highlight_mrr(
+    retrieved: List[List[Tuple[str, int]]],
+    ground_truth: List[set],
+) -> float:
+    """
+    Compute Mean Reciprocal Rank for highlights.
+    
+    Args:
+        retrieved: List of lists of (post_id, sentence_idx) tuples
+        ground_truth: List of sets of ground-truth tuples
+        
+    Returns:
+        Mean Reciprocal Rank
+    """
+    import numpy as np
+    
+    reciprocal_ranks = []
+    for r, g in zip(retrieved, ground_truth):
+        rank = 0
+        for i, item in enumerate(r, 1):
+            if item in g:
+                rank = 1.0 / i
+                break
+        reciprocal_ranks.append(rank)
+    
+    return float(np.mean(reciprocal_ranks)) if reciprocal_ranks else 0.0
