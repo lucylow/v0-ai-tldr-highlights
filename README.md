@@ -241,7 +241,7 @@ To improve efficiency without sacrificing accuracy, the project integrates **Per
 
 ### Experimental Results
 
-<!-- Added PAI experimental comparison chart with actual image URL -->
+<!-- Updated PAI experimental comparison chart with actual image URL -->
 ![PAI Experimental Comparison](/images/5b857f59-902b-44cb-80ea-f0996e6d72bc.png)
 
 *Sample experimental results (example values). Run reproducible W&B sweeps with ml/train.py to produce real numbers.*

@@ -4,18 +4,19 @@ Central Training Script for PerforatedAI Experiments
 This is the main entry point for running PAI experiments. It supports:
 - All three experiment types (baseline, compressed_pai, compressed_control)
 - CLI and YAML configuration
-- W&B logging
+- W&B logging with comprehensive metrics
 - Checkpoint management
 - PAI-controlled training termination
 
 Usage:
-    python -m ml.train --experiment-type compressed_pai --dataset samsum
+    python -m ml.train --experiment-type baseline --dataset samsum --wandb enabled
     python -m ml.train --config-file ml/configs/t5_pai.yaml
 """
 
 import logging
 import sys
 import time
+import os
 from pathlib import Path
 
 import torch
@@ -33,6 +34,17 @@ from ml.pai_utils import (
     apply_safetensors_workaround,
 )
 from ml.eval import evaluate_checkpoint
+
+from utils.wandb_utils import (
+    wandb_init,
+    log_metrics,
+    log_artifact_checkpoint,
+    log_pai_metrics,
+    log_highlight_eval_table,
+    log_training_curve,
+    save_eval_artifacts,
+    finish_wandb,
+)
 
 # Setup logging
 logging.basicConfig(
@@ -113,20 +125,22 @@ def main():
     config.artifact_dir.mkdir(parents=True, exist_ok=True)
     config.save()
     
-    # Initialize W&B
     wandb_run = None
     if config.wandb_enabled:
-        try:
-            import wandb
-            wandb_run = wandb.init(
-                project=config.wandb_project,
-                entity=config.wandb_entity,
-                name=config.save_name,
-                config=config.to_dict(),
-            )
+        wandb_run = wandb_init(
+            project=config.wandb_project,
+            config=config.to_dict(),
+            run_name=config.save_name,
+            tags=[
+                config.experiment_type.value,
+                config.dataset,
+                config.model_family,
+                f"pai_{config.use_pai}",
+            ],
+            entity=config.wandb_entity,
+        )
+        if wandb_run:
             logger.info(f"W&B initialized: {wandb_run.url}")
-        except Exception as e:
-            logger.warning(f"W&B init failed: {e}")
     
     # Step 1: Configure PAI globals (BEFORE model creation)
     pai_configured = configure_experiment(config)
@@ -142,7 +156,6 @@ def main():
     if config.use_compression and config.compression_ratio < 1.0:
         logger.info(f"Applying compression ratio: {config.compression_ratio}")
         # In practice, you'd reduce layers/dimensions here
-        # For demo, we skip actual compression
     
     # Step 4: Convert model for PAI (experiment B only)
     converted_modules = []
@@ -151,6 +164,10 @@ def main():
         apply_safetensors_workaround(enabled=True)
     
     model.to(device)
+    
+    if wandb_run:
+        initial_params = sum(p.numel() for p in model.parameters())
+        log_metrics(0, {"model/initial_params": initial_params}, wandb_run)
     
     # Step 5: Initialize PAI tracker (experiment B only)
     tracker = None
@@ -200,11 +217,14 @@ def main():
     best_score = 0.0
     patience_counter = 0
     train_start = time.time()
+    training_complete = False
     
-    # High max_steps because PAI controls stopping
+    training_history = []
+    
     while global_step < config.max_steps:
         model.train()
         epoch_loss = 0.0
+        batch_count = 0
         
         for batch in train_loader:
             # Move to device
@@ -221,26 +241,49 @@ def main():
             optimizer.step()
             
             epoch_loss += loss.item()
+            batch_count += 1
             global_step += 1
             
-            # Evaluation every N steps (step-based, not epoch-based)
+            if wandb_run and global_step % 10 == 0:
+                current_lr = optimizer.param_groups[0]['lr']
+                log_metrics(global_step, {
+                    "train/loss": loss.item(),
+                    "train/lr": current_lr,
+                }, wandb_run)
+            
+            # Evaluation every N steps
             if global_step % config.eval_steps == 0:
                 eval_score = evaluate_model(model, eval_loader, tokenizer, device)
+                avg_loss = epoch_loss / max(batch_count, 1)
                 
-                logger.info(f"Step {global_step}: eval_score={eval_score:.4f}")
+                logger.info(f"Step {global_step}: eval_score={eval_score:.4f}, avg_loss={avg_loss:.4f}")
                 
                 if wandb_run:
-                    wandb_run.log({
-                        "step": global_step,
-                        "eval_score": eval_score,
-                        "train_loss": epoch_loss / config.eval_steps,
-                    })
+                    eval_metrics = {
+                        "eval/score": eval_score,
+                        "eval/avg_loss": avg_loss,
+                        "train/epoch_loss": epoch_loss,
+                    }
+                    log_metrics(global_step, eval_metrics, wandb_run)
+                    
+                    # Log PAI-specific metrics
+                    log_pai_metrics(wandb_run, model, tracker, global_step)
+                
+                # Track history for curves
+                training_history.append({
+                    "step": global_step,
+                    "eval_score": eval_score,
+                    "loss": avg_loss,
+                })
                 
                 # PAI feedback
                 if tracker:
                     model, improved, restructured, training_complete = add_validation_score(
                         tracker, model, eval_score
                     )
+                    
+                    if wandb_run and restructured:
+                        log_metrics(global_step, {"pai/restructured": 1}, wandb_run)
                     
                     if restructured:
                         logger.info("Reinitializing optimizer after restructuring")
@@ -259,7 +302,15 @@ def main():
                 if eval_score > best_score:
                     best_score = eval_score
                     patience_counter = 0
-                    save_checkpoint(model, optimizer, global_step, config)
+                    ckpt_path = save_checkpoint(model, optimizer, global_step, config)
+                    
+                    if wandb_run:
+                        log_artifact_checkpoint(
+                            wandb_run,
+                            ckpt_path,
+                            f"best-{config.save_name}",
+                            metadata={"step": global_step, "score": eval_score},
+                        )
                 else:
                     patience_counter += 1
                 
@@ -268,11 +319,12 @@ def main():
                     break
                 
                 epoch_loss = 0.0
+                batch_count = 0
             
             if global_step >= config.max_steps:
                 break
         
-        if patience_counter >= 10 or (tracker and training_complete):
+        if patience_counter >= 10 or training_complete:
             break
     
     # Step 9: Final evaluation and cleanup
@@ -280,20 +332,49 @@ def main():
     logger.info(f"Training completed in {train_time:.1f}s")
     logger.info(f"Best score: {best_score:.4f}")
     
-    # Save final artifacts
-    save_checkpoint(model, optimizer, global_step, config, name="final")
+    # Save final checkpoint
+    final_ckpt_path = save_checkpoint(model, optimizer, global_step, config, name="final")
     
     if tracker:
         dump_pai_graphs(tracker, config.artifact_dir / "pai_graphs")
+    
+    if wandb_run:
+        # Log training curve
+        log_training_curve(wandb_run, training_history)
+        
+        # Log final checkpoint
+        log_artifact_checkpoint(
+            wandb_run,
+            final_ckpt_path,
+            f"final-{config.save_name}",
+            metadata={"total_steps": global_step, "best_score": best_score},
+        )
+        
+        # Log evaluation summary
+        save_eval_artifacts(wandb_run, {
+            "best_score": best_score,
+            "total_steps": global_step,
+            "train_time_seconds": train_time,
+            "experiment_type": config.experiment_type.value,
+            "dataset": config.dataset,
+            "model_name": config.model_name,
+            "use_pai": config.use_pai,
+        })
+        
+        # Log final summary metrics
+        log_metrics(global_step, {
+            "final/best_score": best_score,
+            "final/train_time_seconds": train_time,
+            "final/total_steps": global_step,
+        }, wandb_run)
+        
+        finish_wandb(wandb_run)
     
     save_run_metadata(
         config, config.artifact_dir,
         converted_modules=converted_modules,
         wandb_run_id=wandb_run.id if wandb_run else None,
     )
-    
-    if wandb_run:
-        wandb_run.finish()
     
     logger.info("=" * 60)
     logger.info("Training Complete")
@@ -312,13 +393,12 @@ def evaluate_model(model, eval_loader, tokenizer, device) -> float:
             outputs = model(**batch)
             total_loss += outputs.loss.item()
     
-    # Return negative loss as score (higher = better)
     avg_loss = total_loss / max(len(eval_loader), 1)
-    return 1.0 / (1.0 + avg_loss)  # Transform to 0-1 range
+    return 1.0 / (1.0 + avg_loss)
 
 
-def save_checkpoint(model, optimizer, step, config, name="checkpoint"):
-    """Save model checkpoint."""
+def save_checkpoint(model, optimizer, step, config, name="checkpoint") -> str:
+    """Save model checkpoint and return path."""
     path = config.artifact_dir / f"{name}_step{step}.pt"
     torch.save({
         "model_state_dict": model.state_dict(),
@@ -327,6 +407,7 @@ def save_checkpoint(model, optimizer, step, config, name="checkpoint"):
         "config": config.to_dict(),
     }, path)
     logger.info(f"Saved: {path}")
+    return str(path)
 
 
 if __name__ == "__main__":
